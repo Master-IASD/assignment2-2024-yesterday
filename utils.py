@@ -1,7 +1,28 @@
 import torch
 import os
+import uuid
+import torchvision
+from torchvision import datasets, transforms
 
+# Define the transform
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.5,), (0.5,))
+])
 
+def prepare_mnist_dataset():
+    # Download and prepare the MNIST dataset
+    train_dataset = datasets.MNIST(root='data/MNIST', train=True, transform=transform, download=True)
+
+    # Create directories for each class
+    os.makedirs('data/MNIST/train', exist_ok=True)
+    for i in range(10):
+        os.makedirs(f'data/MNIST/train/{i}', exist_ok=True)
+
+    # Save images to the corresponding directories
+    for img, label in train_dataset:
+        img = transforms.ToPILImage()(img)
+        img.save(f'data/MNIST/train/{label}/{uuid.uuid4()}.png')
 
 def D_train(x, G, D, D_optimizer, criterion):
     #=======================Train the discriminator=======================#
@@ -15,12 +36,12 @@ def D_train(x, G, D, D_optimizer, criterion):
     D_real_loss = criterion(D_output, y_real)
     D_real_score = D_output
 
-    # train discriminator on facke
+    # train discriminator on fake
     z = torch.randn(x.shape[0], 100).cuda()
     x_fake, y_fake = G(z), torch.zeros(x.shape[0], 1).cuda()
 
-    D_output =  D(x_fake)
-    
+    D_output = D(x_fake)
+
     D_fake_loss = criterion(D_output, y_fake)
     D_fake_score = D_output
 
@@ -28,9 +49,8 @@ def D_train(x, G, D, D_optimizer, criterion):
     D_loss = D_real_loss + D_fake_loss
     D_loss.backward()
     D_optimizer.step()
-        
-    return  D_loss.data.item()
 
+    return D_loss.data.item()
 
 def G_train(x, G, D, G_optimizer, criterion):
     #=======================Train the generator=======================#
@@ -38,7 +58,7 @@ def G_train(x, G, D, G_optimizer, criterion):
 
     z = torch.randn(x.shape[0], 100).cuda()
     y = torch.ones(x.shape[0], 1).cuda()
-                 
+
     G_output = G(z)
     D_output = D(G_output)
     G_loss = criterion(D_output, y)
@@ -46,17 +66,14 @@ def G_train(x, G, D, G_optimizer, criterion):
     # gradient backprop & optimize ONLY G's parameters
     G_loss.backward()
     G_optimizer.step()
-        
+
     return G_loss.data.item()
 
-
-
 def save_models(G, D, folder):
-    torch.save(G.state_dict(), os.path.join(folder,'G.pth'))
-    torch.save(D.state_dict(), os.path.join(folder,'D.pth'))
+    torch.save(G.state_dict(), os.path.join(folder, 'G.pth'))
+    torch.save(D.state_dict(), os.path.join(folder, 'D.pth'))
 
-
-def load_model(G, folder):
-    ckpt = torch.load(os.path.join(folder,'G.pth'))
-    G.load_state_dict({k.replace('module.', ''): v for k, v in ckpt.items()})
-    return G
+def load_model(model, folder, model_type):
+    ckpt = torch.load(os.path.join(folder, f'{model_type}.pth'))
+    model.load_state_dict({k.replace('module.', ''): v for k, v in ckpt.items()})
+    return model
