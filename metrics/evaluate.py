@@ -151,6 +151,7 @@
 
 import torch
 from torch_fidelity import calculate_metrics
+import os
 
 if __name__ == '__main__':
     # Path to the generated samples
@@ -158,6 +159,14 @@ if __name__ == '__main__':
 
     # Path to the real MNIST dataset (you need to have this dataset in a similar format)
     real_samples_path = 'data/MNIST/train'
+
+    # Debugging: Print paths and list files
+    print(f"Generated samples path: {generated_samples_path}")
+    print(f"Real samples path: {real_samples_path}")
+
+    # List files in the directories
+    print(f"Files in generated samples path: {os.listdir(generated_samples_path)}")
+    print(f"Files in real samples path: {os.listdir(real_samples_path)}")
 
     # Calculate metrics
     metrics_dict = calculate_metrics(
@@ -168,7 +177,8 @@ if __name__ == '__main__':
         fid=True,
         kid=False,
         prc=True,
-        verbose=True
+        verbose=True,
+        samples_find_deep=True  # Enable recursive search
     )
 
     print(metrics_dict)
@@ -177,4 +187,3 @@ if __name__ == '__main__':
     import json
     with open('metrics/evaluation_results.json', 'w') as f:
         json.dump(metrics_dict, f)
-
