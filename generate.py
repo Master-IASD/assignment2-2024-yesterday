@@ -38,10 +38,21 @@ if __name__ == '__main__':
             z = torch.randn(args.batch_size, 100).cuda()
             x = model(z)
             x = x.reshape(args.batch_size, 28, 28)
+            # for k in range(x.shape[0]):
+            #     if n_samples<10000:
+            #         torchvision.utils.save_image(x[k:k+1], os.path.join('samples', f'{n_samples}.png'))         
+            #         n_samples += 1
+
+            # Rejection Sampling
+            D_output = D(x.view(args.batch_size, -1))
+            acceptance_prob = torch.sigmoid(D_output).squeeze()
+
             for k in range(x.shape[0]):
-                if n_samples<10000:
-                    torchvision.utils.save_image(x[k:k+1], os.path.join('samples', f'{n_samples}.png'))         
-                    n_samples += 1
+                if n_samples < 10000:
+                    if acceptance_prob[k] > 0.5:  # Accept if discriminator output is above a threshold
+                        torchvision.utils.save_image(x[k:k+1], os.path.join('samples', f'{n_samples}.png'))
+                        n_samples += 1
+            ###########################
 
 
     
