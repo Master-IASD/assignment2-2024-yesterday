@@ -5,10 +5,11 @@ import argparse
 from torchvision import datasets, transforms
 import torch.nn as nn
 import torch.optim as optim
+import torchvision
 
 
-from model import Generator, Discriminator
-from utils import D_train, G_train, save_models
+from model import Generator, Discriminator, WDiscriminator 
+from utils import D_train, G_train, save_models, WGAN_D_train, WGAN_G_train, save_wgan_models, rejection_sampling
 
 def train_wgan(args):
     """Training function for WGAN with rejection sampling"""
@@ -71,7 +72,7 @@ def train_wgan(args):
             for i, sample in enumerate(samples[:10]):
                 torchvision.utils.save_image(
                     sample.view(28, 28),
-                    f'samples/wgan_epoch_{epoch}_sample_{i}.png'
+                    f'training_samples/wgan_epoch_{epoch}_sample_{i}.png'
                 )
     
     return G, D
@@ -101,6 +102,9 @@ if __name__ == '__main__':
     if args.model == "vanilla":
         os.makedirs("checkpoints", exist_ok=True)
         os.makedirs("data", exist_ok=True)
+
+        #For testing purposes
+        os.makedirs("training_samples", exist_ok=True)  # Create a directory for training samples
 
         # Data Pipeline
         print("Dataset loading...")
