@@ -28,49 +28,31 @@ if __name__ == '__main__':
     # Model Pipeline
     mnist_dim = 784
 
-    G = Generator(g_output_dim=mnist_dim).cuda()
-    G = load_model(G, 'checkpoints', 'G')
-    G = torch.nn.DataParallel(G).cuda()
+    # Set the device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Initialize the Generator model and load weights
+    G = Generator(g_output_dim=mnist_dim).to(device)
+    G = load_model(G, 'checkpoints', 'G_W-GAN-GP')
+    G = torch.nn.DataParallel(G).to(device)
     G.eval()
 
-    D = Discriminator(d_input_dim=mnist_dim).cuda()
-    D = load_model(D, 'checkpoints', 'D')
-    D = torch.nn.DataParallel(D).cuda()
-    D.eval()
-
-    # model = Generator(g_output_dim = mnist_dim).cuda()
-    # model = load_model(model, 'checkpoints')
-    # model = torch.nn.DataParallel(model).cuda()
-    # model.eval()
-    
-    # Load the pretrained Generator model
-    # model_path = 'checkpoints/G_Vanilla.pth'
-    # model = torch.load(model_path)  # Load model directly
-    # model = model.to('cuda')  # Place model on the primary GPU
-    # model = torch.nn.DataParallel(model)  # Wrap model with DataParallel for multi-GPU support
-    # model.eval()  # Set model to evaluation mode
-
     print('Model loaded.')
-    
     print('Start Generating')
+
     os.makedirs('samples', exist_ok=True)
 
     n_samples = 0
     with torch.no_grad():
         while n_samples < 10000:
-            z = torch.randn(args.batch_size, 100).cuda()
-            # z =truncated_normal((args.batch_size, 100), truncation=2.0).cuda()
-            x = G(z) # debug model to G
-            x = x.reshape(args.batch_size, 28, 28)
-
-            # Rejection Sampling
-            D_output = D(x.view(args.batch_size, -1))
-            acceptance_prob = torch.sigmoid(D_output).squeeze()
+            z = torch.randn(args.batch_size, 100, device=device)  # Ensure latent vector uses the correct device
+            x = G(z).reshape(args.batch_size, 1, 28, 28)  # Reshape for image saving
 
             for k in range(x.shape[0]):
                 if n_samples < 10000:
-                    if acceptance_prob[k] > 0.5:  # Accept if discriminator output is above a threshold
-                        torchvision.utils.save_image(x[k:k+1], os.path.join('samples', f'{n_samples}.png'))
-                        n_samples += 1
+                    torchvision.utils.save_image(x[k], os.path.join('samples', f'{n_samples}.png'))
+                    n_samples += 1
+                else:
+                    break
 
     print('Sample generation complete.')
