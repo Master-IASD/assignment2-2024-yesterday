@@ -60,7 +60,7 @@ if __name__ == '__main__':
         while n_samples < 10000:
             z = torch.randn(args.batch_size, 100).cuda()
             # z =truncated_normal((args.batch_size, 100), truncation=2.0).cuda()
-            x = model(z)
+            x = G(z) # debug model to G
             x = x.reshape(args.batch_size, 28, 28)
 
             # Rejection Sampling
