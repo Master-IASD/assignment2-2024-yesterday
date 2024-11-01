@@ -54,26 +54,26 @@ if __name__ == '__main__':
     # Model-specific loading
     model_configs = {
         "vanilla": {
-            "g_path": "G.pth",
-            "d_path": "D.pth",
+            "g_path": "G",
+            "d_path": "D",
             "discriminator": Discriminator(mnist_dim)
         },
         "wgan": {
-            "g_path": "G_wgan.pth",
-            "d_path": "D_wgan.pth",
+            "g_path": "G_wgan",
+            "d_path": "D_wgan",
             "discriminator": WDiscriminator(mnist_dim)
         }
     }
 
     config = model_configs[args.model]
-    G = load_model(G, 'checkpoints', model_name=config["g_path"])
+    G = load_model(G, 'checkpoints', config["g_path"])
     G = torch.nn.DataParallel(G).cuda()
     G.eval()
 
     D = None
     if args.rejection_sampling:
         D = config["discriminator"].cuda()
-        D = load_model(D, 'checkpoints', model_name=config["d_path"])
+        D = load_model(D, 'checkpoints', config["d_path"])
         D = torch.nn.DataParallel(D).cuda()
         D.eval()
 

@@ -3,17 +3,33 @@ import torchvision
 import numpy as np
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
-from improved_precision_recall import compute_pr_metrics
 from pytorch_fid import fid_score
 import os
 import argparse
 from tqdm import tqdm
+import sys
+
+# Add the improved-precision-and-recall-metric-pytorch directory to Python path
+precision_recall_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
+                                   '/content/assignment2-2024-yesterday/improved-precision-and-recall-metric-pytorch/improved-precision-and-recall-metric-pytorch')
+sys.path.append(precision_recall_path)
+
+try:
+    from improved_precision_recall import compute_pr
+except ImportError:
+    print("Could not import compute_pr from improved_precision_recall. Please ensure you have installed it correctly:")
+    print("1. git clone https://github.com/youngjung/improved-precision-and-recall-metric-pytorch")
+    print("2. cd improved-precision-and-recall-metric-pytorch")
+    print("3. pip install -e .")
+    print("4. cd ..")
+    sys.exit(1)
 
 class GANEvaluator:
     def __init__(self, real_data_path, generated_data_path, batch_size=64):
         self.real_data_path = real_data_path
         self.generated_data_path = generated_data_path
         self.batch_size = batch_size
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         # MNIST specific transforms
         self.transform = transforms.Compose([
@@ -79,7 +95,7 @@ class GANEvaluator:
             fid = fid_score.calculate_fid_given_paths(
                 [real_tmp_dir, gen_tmp_dir],
                 batch_size=self.batch_size,
-                device='cuda',
+                device=self.device,
                 dims=2048
             )
             
@@ -99,21 +115,21 @@ class GANEvaluator:
         
         # Extract features from real images
         for imgs, _ in tqdm(real_loader, desc="Processing real images"):
-            real_features.append(imgs.view(imgs.size(0), -1))
+            real_features.append(imgs.view(imgs.size(0), -1).to(self.device))
         real_features = torch.cat(real_features, dim=0)
         
         # Load and process generated images
         generated_imgs = self.load_generated_images()
-        fake_features = generated_imgs.view(generated_imgs.size(0), -1)
+        fake_features = generated_imgs.view(generated_imgs.size(0), -1).to(self.device)
         
-        # Compute precision and recall
-        precision, recall = compute_pr_metrics(
-            real_features.cuda(),
-            fake_features.cuda(),
+        # Compute precision and recall using the improved metric
+        precision, recall = compute_pr(
+            real_features,
+            fake_features,
             batch_size=self.batch_size
         )
         
-        return precision, recall
+        return precision.item(), recall.item()
 
     def evaluate(self):
         """Run all evaluation metrics and return results"""
