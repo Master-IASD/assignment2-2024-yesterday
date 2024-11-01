@@ -18,6 +18,9 @@ def train_wgan(args):
     os.makedirs("checkpoints", exist_ok=True)
     os.makedirs("data", exist_ok=True)
 
+    #For testing purposes
+    os.makedirs("training_samples", exist_ok=True)  # Create a directory for training samples
+
     # Data Pipeline
     print("Dataset loading...")
     # MNIST Dataset
@@ -103,8 +106,6 @@ if __name__ == '__main__':
         os.makedirs("checkpoints", exist_ok=True)
         os.makedirs("data", exist_ok=True)
 
-        #For testing purposes
-        os.makedirs("training_samples", exist_ok=True)  # Create a directory for training samples
 
         # Data Pipeline
         print("Dataset loading...")
