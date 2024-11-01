@@ -33,7 +33,7 @@ if __name__ == '__main__':
 
     # Initialize the Generator model and load weights
     G = Generator(g_output_dim=mnist_dim).to(device)
-    G = load_model(G, 'checkpoints', 'G_W-GAN-GP')
+    G = load_model(G, 'checkpoints', 'G_Vanilla')
     G = torch.nn.DataParallel(G).to(device)
     G.eval()
 
