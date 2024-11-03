@@ -15,7 +15,7 @@ sys.path.append(precision_recall_path)
 
 try:
     import improved_precision_recall
-    from improved_precision_recall import compute_metric, Manifold
+    from improved_precision_recall import IPR, compute_metric, Manifold
 except ImportError as e:
     print(f"Error importing module: {e}")
     print("\nPlease ensure you have installed the package correctly:")
@@ -31,7 +31,7 @@ class GANEvaluator:
         self.generated_data_path = generated_data_path
         self.batch_size = batch_size
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        
+
         # MNIST specific transforms
         self.transform = transforms.Compose([
             transforms.ToTensor(),
@@ -39,46 +39,26 @@ class GANEvaluator:
             transforms.Lambda(lambda x: torch.cat([x, x, x], 0))  # Convert to 3 channels for FID
         ])
 
+        self.ipr = IPR(batch_size=self.batch_size, k=3, num_samples=10000)
+
     def compute_precision_recall(self):
         """Compute precision and recall metrics"""
         # Load real and generated images
         real_loader = self.load_mnist_dataset()
-        real_features = []
-        
-        # Extract features from real images
+        real_images = []
+
+        # Collect real images
         for imgs, _ in tqdm(real_loader, desc="Processing real images"):
-            real_features.append(imgs.view(imgs.size(0), -1))
-        real_features = torch.cat(real_features, dim=0)
-        
-        # Convert to numpy array
-        real_features = real_features.cpu().numpy()
-        
+            real_images.append(imgs)
+        real_images = torch.cat(real_images, dim=0)
+
         # Load and process generated images
         generated_imgs = self.load_generated_images()
-        fake_features = generated_imgs.view(generated_imgs.size(0), -1)
-        
-        # Convert to numpy array
-        fake_features = fake_features.cpu().numpy()
-        
-        # Create manifolds for real and fake features
-        k = 3  # Setting number of neighbors to 3
-        real_manifold = Manifold(real_features, k)
-        fake_manifold = Manifold(fake_features, k)
-        
-        # Compute precision (how many fake samples fall within real manifold)
-        precision = compute_metric(
-            manifold_ref=real_manifold,
-            feats_subject=fake_features,
-            desc='Computing precision'
-        )
-        
-        # Compute recall (how many real samples fall within fake manifold)
-        recall = compute_metric(
-            manifold_ref=fake_manifold,
-            feats_subject=real_features,
-            desc='Computing recall'
-        )
-        
+
+        # Compute precision and recall using IPR
+        self.ipr.compute_manifold_ref(real_images)
+        precision, recall = self.ipr.precision_and_recall(generated_imgs)
+
         return precision, recall
 
     def load_mnist_dataset(self):
@@ -90,7 +70,7 @@ class GANEvaluator:
             download=True
         )
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
-    
+
     def load_generated_images(self):
         """Load generated images from directory"""
         generated_images = []
@@ -120,7 +100,7 @@ class GANEvaluator:
             for i, (imgs, _) in enumerate(tqdm(loader, desc="Preparing real images")):
                 for j, img in enumerate(imgs):
                     torchvision.utils.save_image(
-                        img, 
+                        img,
                         f"{real_tmp_dir}/{i}_{j}.png",
                         normalize=True
                     )
@@ -141,9 +121,9 @@ class GANEvaluator:
                 device=self.device,
                 dims=2048
             )
-            
+
             return fid
-            
+
         finally:
             # Cleanup temporary directories
             import shutil
@@ -154,16 +134,16 @@ class GANEvaluator:
         """Run all evaluation metrics and return results"""
         print("Computing FID score...")
         fid = self.compute_fid()
-        
+
         print("Computing Precision-Recall metrics...")
         precision, recall = self.compute_precision_recall()
-        
+
         results = {
             'fid': fid,
             'precision': precision,
             'recall': recall
         }
-        
+
         return results
 
 def main():
@@ -176,26 +156,27 @@ def main():
                       help='Batch size for evaluation')
     parser.add_argument('--output_file', type=str, default='evaluation_results.txt',
                       help='File to save evaluation results')
-    
+
     args = parser.parse_args()
-    
+
     evaluator = GANEvaluator(
         args.real_data_path,
         args.generated_data_path,
         args.batch_size
     )
-    
+
     results = evaluator.evaluate()
-    
+
     # Print and save results
     print("\nEvaluation Results:")
     print(f"FID Score: {results['fid']:.2f}")
     print(f"Precision: {results['precision']:.4f}")
     print(f"Recall: {results['recall']:.4f}")
-    
+
     with open(args.output_file, 'w') as f:
         for metric, value in results.items():
             f.write(f"{metric}: {value}\n")
 
 if __name__ == '__main__':
     main()
+
