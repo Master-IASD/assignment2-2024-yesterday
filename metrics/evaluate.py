@@ -9,15 +9,16 @@ import argparse
 from tqdm import tqdm
 import sys
 
-# Add the improved-precision-and-recall-metric-pytorch directory to Python path
-precision_recall_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
-                                   '/content/assignment2-2024-yesterday/improved-precision-and-recall-metric-pytorch/improved-precision-and-recall-metric-pytorch')
+# Fix the path to the improved precision and recall package
+precision_recall_path = '/content/assignment2-2024-yesterday/improved-precision-and-recall-metric-pytorch'
 sys.path.append(precision_recall_path)
 
 try:
-    from improved_precision_recall import compute_pr
-except ImportError:
-    print("Could not import compute_pr from improved_precision_recall. Please ensure you have installed it correctly:")
+    import improved_precision_recall
+    from improved_precision_recall import compute_metric, Manifold
+except ImportError as e:
+    print(f"Error importing module: {e}")
+    print("\nPlease ensure you have installed the package correctly:")
     print("1. git clone https://github.com/youngjung/improved-precision-and-recall-metric-pytorch")
     print("2. cd improved-precision-and-recall-metric-pytorch")
     print("3. pip install -e .")
@@ -37,7 +38,49 @@ class GANEvaluator:
             transforms.Normalize((0.5,), (0.5,)),
             transforms.Lambda(lambda x: torch.cat([x, x, x], 0))  # Convert to 3 channels for FID
         ])
+
+    def compute_precision_recall(self):
+        """Compute precision and recall metrics"""
+        # Load real and generated images
+        real_loader = self.load_mnist_dataset()
+        real_features = []
         
+        # Extract features from real images
+        for imgs, _ in tqdm(real_loader, desc="Processing real images"):
+            real_features.append(imgs.view(imgs.size(0), -1))
+        real_features = torch.cat(real_features, dim=0)
+        
+        # Convert to numpy array
+        real_features = real_features.cpu().numpy()
+        
+        # Load and process generated images
+        generated_imgs = self.load_generated_images()
+        fake_features = generated_imgs.view(generated_imgs.size(0), -1)
+        
+        # Convert to numpy array
+        fake_features = fake_features.cpu().numpy()
+        
+        # Create manifolds for real and fake features
+        k = 3  # Setting number of neighbors to 3
+        real_manifold = Manifold(real_features, k)
+        fake_manifold = Manifold(fake_features, k)
+        
+        # Compute precision (how many fake samples fall within real manifold)
+        precision = compute_metric(
+            manifold_ref=real_manifold,
+            feats_subject=fake_features,
+            desc='Computing precision'
+        )
+        
+        # Compute recall (how many real samples fall within fake manifold)
+        recall = compute_metric(
+            manifold_ref=fake_manifold,
+            feats_subject=real_features,
+            desc='Computing recall'
+        )
+        
+        return precision, recall
+
     def load_mnist_dataset(self):
         """Load MNIST dataset and convert to RGB format"""
         dataset = datasets.MNIST(
@@ -106,30 +149,6 @@ class GANEvaluator:
             import shutil
             shutil.rmtree(real_tmp_dir, ignore_errors=True)
             shutil.rmtree(gen_tmp_dir, ignore_errors=True)
-
-    def compute_precision_recall(self):
-        """Compute precision and recall metrics"""
-        # Load real and generated images
-        real_loader = self.load_mnist_dataset()
-        real_features = []
-        
-        # Extract features from real images
-        for imgs, _ in tqdm(real_loader, desc="Processing real images"):
-            real_features.append(imgs.view(imgs.size(0), -1).to(self.device))
-        real_features = torch.cat(real_features, dim=0)
-        
-        # Load and process generated images
-        generated_imgs = self.load_generated_images()
-        fake_features = generated_imgs.view(generated_imgs.size(0), -1).to(self.device)
-        
-        # Compute precision and recall using the improved metric
-        precision, recall = compute_pr(
-            real_features,
-            fake_features,
-            batch_size=self.batch_size
-        )
-        
-        return precision.item(), recall.item()
 
     def evaluate(self):
         """Run all evaluation metrics and return results"""
