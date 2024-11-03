@@ -99,8 +99,9 @@ if __name__ == '__main__':
     # if args.rejection_sampling:
     #     sample_dir += f'_rejection_{args.threshold}'
     # os.makedirs(sample_dir, exist_ok=True)
-    
+
     print('Start Generating')
+
     os.makedirs('samples', exist_ok=True)
 
     n_samples = 0
