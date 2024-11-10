@@ -1,24 +1,19 @@
-import torch
+import torch 
 import torchvision
 import os
 import argparse
+import torch.optim as optim
+from torch.distributions import Normal, Independent
+import numpy as np
+from pyro.infer.mcmc import MCMC, NUTS
+import pyro
+from model import Generator,Discriminator
+from utils import load_model
 
-from model import Generator, Discriminator, WDiscriminator
-from utils import load_model, rejection_sampling
-
-def normalize_discriminator_scores(scores, model_type):
-    """Normalize discriminator scores based on the model type"""
-    if model_type == "vanilla":
-        # Vanilla GAN already outputs probabilities (0-1)
-        return scores
-    elif model_type == "wgan":
-        # Convert WGAN scores to pseudo-probabilities using sigmoid
-        return torch.sigmoid(scores)
-    else:
-        # For future GAN implementations, add normalization logic here
-        return scores
-
-'''
+def load_model_D(D, folder):
+    ckpt = torch.load(os.path.join(folder,'D.pth'))
+    D.load_state_dict({k.replace('module.', ''): v for k, v in ckpt.items()})
+    return D
 def truncated_normal(shape, mean=0.0, std=1.0, truncation=2.0):
 
     z = torch.randn(shape).cuda() * std + mean
@@ -27,134 +22,110 @@ def truncated_normal(shape, mean=0.0, std=1.0, truncation=2.0):
         mask = (z < -truncation) | (z > truncation)
         if not mask.any():
             break
-        z[mask] = torch.randn(mask.sum()).cuda() * std + mean   
+        z[mask] = torch.randn(mask.sum()).cuda() * std + mean
+    
     return z
-'''
+def DDLS_sampling(generator, discriminator, z_dim, eps, num_iter, batch_size):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    generator = generator.to(device)
+    discriminator = discriminator.to(device)
+
+    cur_z_arr = []
+    for i in range(batch_size):
+        loc = torch.zeros(z_dim, device=device)
+        scale = torch.ones(z_dim, device=device)
+        normal = Normal(loc, scale)
+        diagn = Independent(normal, 1)
+        cur_z = diagn.sample()
+        cur_z_arr.append(cur_z.clone())
+    cur_z_arr = torch.stack(cur_z_arr, dim=0).to(device)
+    cur_z_arr.requires_grad_(True)  
+
+    for i in range(num_iter):
+
+        generated_samples = generator(cur_z_arr)
+        gan_part = -discriminator(generated_samples).squeeze() 
+        latent_part = -Normal(torch.zeros(z_dim, device=device), torch.ones(z_dim, device=device)).log_prob(cur_z_arr).sum(dim=1)
+
+        energy = gan_part + latent_part
+        energy = energy.sum()  
+        energy.backward()  
+
+        # Langevin 
+        with torch.no_grad():
+            noise = torch.randn_like(cur_z_arr).to(device)
+            cur_z_arr -= (eps / 2) * cur_z_arr.grad - (eps ** 0.5) * noise
+
+        cur_z_arr.grad.zero_()
+
+    return cur_z_arr
+
+
+def calculate_energy(z):
+
+    z = z['points']
+    return 0.5 * torch.sum(z ** 2, dim=-1)  
+
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Generate Samples from GAN Models.')
+    parser = argparse.ArgumentParser(description='Generate Normalizing Flow.')
     parser.add_argument("--batch_size", type=int, default=2048,
-                      help="The batch size to use for generation.")
-    parser.add_argument("--model", type=str, default="wgan",
-                      choices=["vanilla", "wgan"],  # Add new models here
-                      help="Which model to use for generation")
-    parser.add_argument("--rejection_sampling", action="store_true", default=True,
-                      help="Whether to use rejection sampling")
-    parser.add_argument("--threshold", type=float, default=0.7,
-                      help="Threshold for rejection sampling (0-1)")
-    parser.add_argument("--output_dir", type=str, default="samples",
-                      help="Directory to save generated samples")
+                      help="The batch size to use for training.")
     args = parser.parse_args()
 
     print('Model Loading...')
+    # Model Pipeline
     mnist_dim = 784
 
-    # Load Generator 
-    G = Generator(g_output_dim=mnist_dim).cuda()
-    
-    # Model-specific loading
-    model_configs = {
-        "vanilla": {
-            "g_path": "G",
-            "d_path": "D",
-            "discriminator": Discriminator(mnist_dim)
-        },
-        "wgan": {
-            "g_path": "G_wgan",
-            "d_path": "D_wgan",
-            "discriminator": WDiscriminator(mnist_dim)
-        }
-    }
-
-    config = model_configs[args.model]
-    G = load_model(G, 'checkpoints', config["g_path"])
-    G = torch.nn.DataParallel(G).cuda()
-    G.eval()
-
-    D = None
-    if args.rejection_sampling:
-        D = config["discriminator"].cuda()
-        D = load_model(D, 'checkpoints', config["d_path"])
-        D = torch.nn.DataParallel(D).cuda()
-        D.eval()
-
-    print(f'Model loaded. Using {args.model} GAN model')
-    print(f'Rejection sampling: {"enabled" if args.rejection_sampling else "disabled"}')
-
-
     # model = Generator(g_output_dim = mnist_dim).cuda()
-    # model = load_model(model, 'checkpoints')
+    # model=Generator(image_size=784,
+    #              hidden_dim=400,
+    #              z_dim=20).cuda()
+    # model = load_model(model, 'checkpoints_gan')
     # model = torch.nn.DataParallel(model).cuda()
     # model.eval()
-    
-    # Load the pretrained Generator model
-    # model_path = 'checkpoints/G_Vanilla.pth'
-    # model = torch.load(model_path)  # Load model directly
-    # model = model.to('cuda')  # Place model on the primary GPU
-    # model = torch.nn.DataParallel(model)  # Wrap model with DataParallel for multi-GPU support
-    # model.eval()  # Set model to evaluation mode
 
-    print('Model loaded.')
+    # print('Model loaded.')
+    generator = Generator(g_output_dim = mnist_dim).cuda()
+    discriminator=Discriminator(mnist_dim).cuda()
+    generator = load_model(generator, 'checkpoints')
+    discriminator=load_model_D(discriminator, 'checkpoints')
 
-    # sample_dir = os.path.join(args.output_dir, f'{args.model}_gan')
-    # if args.rejection_sampling:
-    #     sample_dir += f'_rejection_{args.threshold}'
-    # os.makedirs(sample_dir, exist_ok=True)
-
+    generator = torch.nn.DataParallel(generator).cuda()
+    discriminator = torch.nn.DataParallel(discriminator).cuda()
     print('Start Generating')
-
     os.makedirs('samples', exist_ok=True)
-
+    eps = 0.1 
+    num_iter = 100  # Langevin 
+    batch_size = 2048  
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     n_samples = 0
-    with torch.no_grad():
-        if args.rejection_sampling and D is not None:
-            print(f'Using rejection sampling with threshold {args.threshold}...')
-            accepted_samples = []
-            
-            while len(accepted_samples) < 10000:
-                # Generate batch
-                z = torch.randn(args.batch_size, 100).cuda()
-                fake_samples = G(z)
-                
-                # Get discriminator scores
-                d_scores = D(fake_samples)
-                # Normalize scores based on model type
-                d_scores = normalize_discriminator_scores(d_scores, args.model)
-                
-                # Apply rejection sampling
-                accepted_mask = d_scores.squeeze() > args.threshold
-                
-                if accepted_mask.any():
-                    accepted_batch = fake_samples[accepted_mask]
-                    accepted_samples.append(accepted_batch)
-                    
-                    # Save accepted samples
-                    for idx, sample in enumerate(accepted_batch):
-                        if len(accepted_samples) * args.batch_size + idx < 10000:
-                            torchvision.utils.save_image(
-                                sample.view(28, 28),
-                                os.path.join('samples', f'{n_samples}.png')
-                            )
-                            n_samples += 1
-                        else:
-                            break
-                
-                if n_samples >= 10000:
-                    break
-                
-                if n_samples % 100 == 0:
-                    print(f'Generated {n_samples}/10000 samples')
-        else:
-            # Standard generation without rejection sampling
-            while n_samples < 10000:
-                z = torch.randn(args.batch_size, 100).cuda()
-                x = G(z)
-                x = x.reshape(args.batch_size, 28, 28)
-                for k in range(x.shape[0]):
-                    if n_samples < 10000:
-                        torchvision.utils.save_image(
-                            x[k:k+1],
-                            os.path.join('samples', f'{n_samples}.png')
-                        )
-                        n_samples += 1
+    kernel = NUTS(potential_fn=calculate_energy)
+    mcmc = MCMC(kernel=kernel, num_samples=5000, initial_params={'points': torch.zeros(100).to(device)}, num_chains=1)
 
-    print('Sample generation complete.')
+    mcmc.run()
+    sampled_z = mcmc.get_samples()['points']  
+    with torch.no_grad():
+        # while n_samples<10000:
+        for i in range(0, len(sampled_z), batch_size):
+            # z = torch.randn(args.batch_size, 100).cuda()
+            # # z =truncated_normal((args.batch_size, 20), truncation=2.0).cuda()
+            # x = model(z)
+            # x = x.reshape(args.batch_size, 28, 28)
+            # sampled_z = DDLS_sampling(generator, discriminator, 100, eps, num_iter, batch_size)
+            # generated_images = generator(sampled_z)
+            # generated_images = generated_images.reshape(batch_size, 1, 28, 28)
+            z_batch = sampled_z[i:i+batch_size].to(device)
+
+            generated_images = generator(z_batch)
+            generated_images = generated_images.reshape(generated_images.size(0), 1, 28, 28) 
+
+       
+            for k in range(generated_images.shape[0]):
+                if n_samples<10000:
+                    torchvision.utils.save_image(generated_images[k:k+1], os.path.join('samples', f'{n_samples}.png'))         
+                    n_samples += 1
+            if n_samples >= 10000:
+                break  
+
+
+    
