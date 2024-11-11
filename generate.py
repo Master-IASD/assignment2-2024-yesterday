@@ -23,10 +23,10 @@ if __name__ == '__main__':
                       help="Which model to use for generation")
     parser.add_argument("--rejection_sampling", action="store_true", default=True,
                       help="Whether to use rejection sampling")
-    parser.add_argument("--sampling_method", type=str, default="standard",
+    parser.add_argument("--sampling_method", type=str, default="obrs",
                       choices=["standard", "rejection", "obrs"],
                       help="Sampling method to use")
-    parser.add_argument("--budget_K", type=float, default=4.0,
+    parser.add_argument("--budget_K", type=float, default=6.0,
                       help="Budget parameter K for OBRS")
     parser.add_argument("--threshold", type=float, default=0.7,
                       help="Threshold for rejection sampling (0-1)")
