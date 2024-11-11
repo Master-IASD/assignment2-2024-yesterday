@@ -18,10 +18,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Generate Samples from GAN Models.')
     parser.add_argument("--batch_size", type=int, default=2048,
                       help="The batch size to use for generation.")
+<<<<<<< HEAD
     parser.add_argument("--model", type=str, default="vanilla",
                       choices=["vanilla", "wgan"],
+=======
+    parser.add_argument("--model", type=str, default="wgan",
+                      choices=["vanilla", "wgan"],  # Add new models here
+>>>>>>> main
                       help="Which model to use for generation")
-    parser.add_argument("--rejection_sampling", action="store_true",
+    parser.add_argument("--rejection_sampling", action="store_true", default=True,
                       help="Whether to use rejection sampling")
     parser.add_argument("--sampling_method", type=str, default="standard",
                       choices=["standard", "rejection", "obrs"],
