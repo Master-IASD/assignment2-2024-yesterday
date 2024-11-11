@@ -144,31 +144,23 @@ def save_wgan_models(G, D, folder):
 
 def compute_ck(fake_samples, D, budget_K, epsilon=1e-5, max_iter=100):
     """
-    Implement Algorithm 5 from the paper to find cK using dichotomy/bisection
-    
-    Args:
-        fake_samples: Generated samples from G
-        D: Discriminator model
-        budget_K: Budget parameter K (expected number of samples to draw)
-        epsilon: Threshold for convergence
-        max_iter: Maximum number of iterations
+    Compute optimal acceptance threshold for OBRS
     """
     with torch.no_grad():
-        # Get density ratios using discriminator
         d_scores = D(fake_samples)
-        # Convert to density ratios (assuming binary classification discriminator)
-        # For WGAN, convert scores to pseudo-probabilities
+        
+        # Handle different discriminator types
         if isinstance(D, torch.nn.DataParallel):
             D_module = D.module
         else:
             D_module = D
             
         if hasattr(D_module, 'is_wgan') and D_module.is_wgan:
-            density_ratios = torch.exp(d_scores)
+            density_ratios = torch.exp(d_scores).squeeze()
         else:
+            d_scores = d_scores.squeeze()
             density_ratios = torch.sigmoid(d_scores) / (1 - torch.sigmoid(d_scores))
         
-        # Estimate M as maximum density ratio
         M = density_ratios.max().item()
         
         # Initialize dichotomy
@@ -177,17 +169,14 @@ def compute_ck(fake_samples, D, budget_K, epsilon=1e-5, max_iter=100):
         ck = (c_max + c_min) / 2
         
         for _ in range(max_iter):
-            # Compute acceptance probabilities
             accept_probs = torch.minimum(density_ratios * ck / M, 
                                        torch.ones_like(density_ratios))
             
-            # Compute loss (difference from target acceptance rate 1/K)
             loss = accept_probs.mean().item() - (1.0 / budget_K)
             
             if abs(loss) < epsilon:
                 break
                 
-            # Update bounds based on loss
             if loss > epsilon:
                 c_max = ck
             elif loss < -epsilon:
@@ -200,13 +189,6 @@ def compute_ck(fake_samples, D, budget_K, epsilon=1e-5, max_iter=100):
 def optimal_budgeted_rejection_sampling(G, D, n_samples, budget_K, batch_size=1024):
     """
     Perform Optimal Budgeted Rejection Sampling
-    
-    Args:
-        G: Generator model
-        D: Discriminator model
-        n_samples: Number of samples to generate
-        budget_K: Budget parameter K
-        batch_size: Batch size for generation
     """
     accepted_samples = []
     
@@ -219,20 +201,30 @@ def optimal_budgeted_rejection_sampling(G, D, n_samples, budget_K, batch_size=10
         pbar = tqdm(total=n_samples, desc="Generating samples with OBRS")
         
         while len(accepted_samples) < n_samples:
-            # Generate batch
             z = torch.randn(batch_size, 100).cuda()
             fake_samples = G(z)
             
-            # Compute density ratios
+            # Get discriminator scores and compute density ratios
             d_scores = D(fake_samples)
-            density_ratios = torch.sigmoid(d_scores) / (1 - torch.sigmoid(d_scores))
+            
+            # Handle different discriminator types
+            if isinstance(D, torch.nn.DataParallel):
+                D_module = D.module
+            else:
+                D_module = D
+                
+            if hasattr(D_module, 'is_wgan') and D_module.is_wgan:
+                density_ratios = torch.exp(d_scores).squeeze()
+            else:
+                d_scores = d_scores.squeeze()
+                density_ratios = torch.sigmoid(d_scores) / (1 - torch.sigmoid(d_scores))
             
             # Compute acceptance probabilities using OBRS formula
             accept_probs = torch.minimum(density_ratios * ck / M, 
                                        torch.ones_like(density_ratios))
             
             # Generate random numbers for acceptance
-            random_nums = torch.rand_like(accept_probs)
+            random_nums = torch.rand(batch_size).cuda()
             accepted_mask = random_nums < accept_probs
             
             if accepted_mask.any():
@@ -241,21 +233,20 @@ def optimal_budgeted_rejection_sampling(G, D, n_samples, budget_K, batch_size=10
                 
                 pbar.update(accepted_batch.size(0))
                 
-            if len(accepted_samples) >= n_samples:
+            if sum(len(batch) for batch in accepted_samples) >= n_samples:
                 break
                 
         pbar.close()
         
         # Concatenate and trim to exact number of samples
-        accepted_samples = torch.cat(accepted_samples, dim=0)[:n_samples]
-        
-        return accepted_samples
+        all_samples = torch.cat(accepted_samples, dim=0)
+        return all_samples[:n_samples]
 
-# Modified generate function incorporating OBRS
 def generate_with_obrs(G, D, n_samples=10000, budget_K=4, batch_size=1024, output_dir='samples'):
     """
     Generate samples using OBRS and save them
     """
+    import torchvision
     os.makedirs(output_dir, exist_ok=True)
     
     print(f'Generating {n_samples} samples using OBRS with budget K={budget_K}...')
